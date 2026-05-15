@@ -1,50 +1,58 @@
-name: Build Wild Kernel GKI 5.10
+name: Wild Kernel GKI 5.10 Build
 
 on:
-  workflow_dispatch: # Allows manual trigger
+  workflow_dispatch:
   push:
     branches: [ "main" ]
 
 jobs:
   build:
-    runs-on: ubuntu-22.04 # Stable environment for kernel building
+    runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout Kernel Source
+      - name: Checkout Source
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang-12 lld-12 llvm-12
+          # Create symlinks to ensure 'clang' refers to version 12 as per your ADB check
+          sudo ln -sf /usr/bin/clang-12 /usr/bin/clang
+          sudo ln -sf /usr/bin/ld.lld-12 /usr/bin/ld.lld
 
-      - name: Inject RTL8188EUS Driver
+      - name: Configure Wireless & Driver
         run: |
-          # Navigate to the wireless drivers directory
+          # 1. Enable CFG80211 in the config you edited
+          echo "CONFIG_CFG80211=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_MAC80211=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CFG80211_WEXT=y" >> common/arch/arm64/configs/gki_defconfig
+          
+          # 2. Inject RTL8188EUS Driver
           cd common/drivers/net/wireless
-          # Clone the driver source
+          mkdir -p realtek/rtl8188eus
           git clone https://github.com/aircrack-ng/rtl8188eus.git realtek/rtl8188eus
-          # Add it to the kernel's build system
           echo "obj-y += realtek/rtl8188eus/" >> Makefile
-          echo 'source "drivers/net/wireless/realtek/rtl8188eus/Kconfig"' >> Kconfig
 
-      - name: Run Build Script
+      - name: Build Kernel
         run: |
-          # The WildKernels repo usually has a build.sh or uses a specific command
-          # We force it to use the gki_defconfig you edited
-          export ARCH=arm64
-          export LLVM=1
-          export LLVM_IAS=1
+          # Disable ABI tracking to prevent failures due to the new driver
+          export KMI_SYMBOL_CHECK=0
+          export SKIP_ABI_WHITELIST=1
           
-          # This command starts the actual compilation
-          # Note: If the repo uses Bazel/Kleaf, this command may vary
-          ./build_abi.sh || ./build.sh
-          
-      - name: Upload AnyKernel3 Zip
+          # Use the build script from the WildKernels repo
+          chmod +x build_abi.sh
+          ./build_abi.sh
+
+      - name: Upload AnyKernel3
         uses: actions/upload-artifact@v4
         with:
-          name: Wild-Kernel-Infinix-X6532C
+          name: Wild-Infinix-X6532C-Kernel
           path: out/main/dist/*.zip
