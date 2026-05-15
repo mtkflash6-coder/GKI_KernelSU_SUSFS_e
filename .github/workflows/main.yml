@@ -1,4 +1,33 @@
-- name: Configure Wireless & Driver
+name: Wild Kernel GKI 5.10 Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang-12 lld-12 llvm-12
+          sudo ln -sf /usr/bin/clang-12 /usr/bin/clang
+          sudo ln -sf /usr/bin/ld.lld-12 /usr/bin/ld.lld
+
+      - name: Configure Wireless & Driver
         run: |
           # 1. Find and update gki_defconfig wherever it is
           GKI_CONFIG=$(find . -name "gki_defconfig" | head -n 1)
@@ -18,8 +47,20 @@
             cd "$WLAN_DIR"
             mkdir -p realtek/rtl8188eus
             git clone https://github.com/aircrack-ng/rtl8188eus.git realtek/rtl8188eus
-            # Use sed to add the driver to the Makefile safely
             echo "obj-y += realtek/rtl8188eus/" >> Makefile
           else
             echo "Error: Wireless directory not found!" && exit 1
           fi
+
+      - name: Build Kernel
+        run: |
+          export KMI_SYMBOL_CHECK=0
+          export SKIP_ABI_WHITELIST=1
+          chmod +x build_abi.sh
+          ./build_abi.sh
+
+      - name: Upload AnyKernel3
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wild-Infinix-X6532C-Kernel
+          path: out/main/dist/*.zip
