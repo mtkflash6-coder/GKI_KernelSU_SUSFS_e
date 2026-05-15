@@ -1,0 +1,50 @@
+name: Build Wild Kernel GKI 5.10
+
+on:
+  workflow_dispatch: # Allows manual trigger
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04 # Stable environment for kernel building
+
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: 1
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang lld llvm
+
+      - name: Inject RTL8188EUS Driver
+        run: |
+          # Navigate to the wireless drivers directory
+          cd common/drivers/net/wireless
+          # Clone the driver source
+          git clone https://github.com/aircrack-ng/rtl8188eus.git realtek/rtl8188eus
+          # Add it to the kernel's build system
+          echo "obj-y += realtek/rtl8188eus/" >> Makefile
+          echo 'source "drivers/net/wireless/realtek/rtl8188eus/Kconfig"' >> Kconfig
+
+      - name: Run Build Script
+        run: |
+          # The WildKernels repo usually has a build.sh or uses a specific command
+          # We force it to use the gki_defconfig you edited
+          export ARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
+          
+          # This command starts the actual compilation
+          # Note: If the repo uses Bazel/Kleaf, this command may vary
+          ./build_abi.sh || ./build.sh
+          
+      - name: Upload AnyKernel3 Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wild-Kernel-Infinix-X6532C
+          path: out/main/dist/*.zip
