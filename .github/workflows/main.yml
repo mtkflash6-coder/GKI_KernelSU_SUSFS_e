@@ -1,58 +1,25 @@
-name: Wild Kernel GKI 5.10 Build
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [ "main" ]
-
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Build Dependencies
+- name: Configure Wireless & Driver
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc build-essential flex bison libssl-dev libelf-dev clang-12 lld-12 llvm-12
-          # Create symlinks to ensure 'clang' refers to version 12 as per your ADB check
-          sudo ln -sf /usr/bin/clang-12 /usr/bin/clang
-          sudo ln -sf /usr/bin/ld.lld-12 /usr/bin/ld.lld
-
-      - name: Configure Wireless & Driver
-        run: |
-          # 1. Enable CFG80211 in the config you edited
-          echo "CONFIG_CFG80211=y" >> common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_MAC80211=y" >> common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_CFG80211_WEXT=y" >> common/arch/arm64/configs/gki_defconfig
+          # 1. Find and update gki_defconfig wherever it is
+          GKI_CONFIG=$(find . -name "gki_defconfig" | head -n 1)
+          if [ -f "$GKI_CONFIG" ]; then
+            echo "Found config at $GKI_CONFIG"
+            echo "CONFIG_CFG80211=y" >> "$GKI_CONFIG"
+            echo "CONFIG_MAC80211=y" >> "$GKI_CONFIG"
+            echo "CONFIG_CFG80211_WEXT=y" >> "$GKI_CONFIG"
+          else
+            echo "Error: gki_defconfig not found!" && exit 1
+          fi
           
-          # 2. Inject RTL8188EUS Driver
-          cd common/drivers/net/wireless
-          mkdir -p realtek/rtl8188eus
-          git clone https://github.com/aircrack-ng/rtl8188eus.git realtek/rtl8188eus
-          echo "obj-y += realtek/rtl8188eus/" >> Makefile
-
-      - name: Build Kernel
-        run: |
-          # Disable ABI tracking to prevent failures due to the new driver
-          export KMI_SYMBOL_CHECK=0
-          export SKIP_ABI_WHITELIST=1
-          
-          # Use the build script from the WildKernels repo
-          chmod +x build_abi.sh
-          ./build_abi.sh
-
-      - name: Upload AnyKernel3
-        uses: actions/upload-artifact@v4
-        with:
-          name: Wild-Infinix-X6532C-Kernel
-          path: out/main/dist/*.zip
+          # 2. Find the wireless directory and inject driver
+          WLAN_DIR=$(find . -type d -path "*/drivers/net/wireless" | head -n 1)
+          if [ -d "$WLAN_DIR" ]; then
+            echo "Found wireless directory at $WLAN_DIR"
+            cd "$WLAN_DIR"
+            mkdir -p realtek/rtl8188eus
+            git clone https://github.com/aircrack-ng/rtl8188eus.git realtek/rtl8188eus
+            # Use sed to add the driver to the Makefile safely
+            echo "obj-y += realtek/rtl8188eus/" >> Makefile
+          else
+            echo "Error: Wireless directory not found!" && exit 1
+          fi
